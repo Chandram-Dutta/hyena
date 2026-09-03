@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+package hyena.adapter.v0;
+
+// Experimental Phase 0 control-plane protocol. Package v0 carries no
+// compatibility promise. The semantic fact data plane will be added only
+// after Dart and TypeScript vertical slices validate the domain contract.
+message Envelope {
+  uint64 request_id = 1;
+
+  oneof message {
+    Hello hello = 10;
+    Ready ready = 11;
+    AnalyzeRequest analyze_request = 12;
+    Cancel cancel = 13;
+    Complete complete = 14;
+    AdapterError error = 15;
+  }
+
+  reserved 2 to 9;
+}
+
+message ProtocolVersion {
+  uint32 major = 1;
+  uint32 minor = 2;
+}
+
+message Hello {
+  string engine_name = 1;
+  string engine_version = 2;
+  repeated ProtocolVersion supported_versions = 3;
+  uint32 max_frame_bytes = 4;
+}
+
+message Ready {
+  AdapterInfo adapter = 1;
+  ProtocolVersion selected_version = 2;
+  repeated Capability capabilities = 3;
+}
+
+message AdapterInfo {
+  string name = 1;
+  string version = 2;
+  string build_id = 3;
+}
+
+message Capability {
+  // Reverse-domain or project-qualified identifier, such as
+  // "hyena.semantic.definitions". Unknown capabilities are preserved as
+  // strings and never interpreted as negative facts.
+  string id = 1;
+  uint32 version = 2;
+}
+
+message AnalyzeRequest {
+  // Physical workspace root granted to this trusted v0 subprocess. It is not
+  // a portable artifact identity and must not appear in findings.
+  string workspace_root = 1;
+  string target = 2;
+  bytes configuration_digest = 3;
+  string variant_id = 4;
+}
+
+message Cancel {
+  string reason = 1;
+}
+
+message Complete {
+  CompletionStatus status = 1;
+  repeated Completeness dimensions = 2;
+}
+
+enum CompletionStatus {
+  COMPLETION_STATUS_UNSPECIFIED = 0;
+  COMPLETION_STATUS_SUCCEEDED = 1;
+  COMPLETION_STATUS_PARTIAL = 2;
+  COMPLETION_STATUS_CANCELLED = 3;
+  COMPLETION_STATUS_FAILED = 4;
+}
+
+message Completeness {
+  string capability_id = 1;
+  CompletenessStatus status = 2;
+  string reason_code = 3;
+}
+
+enum CompletenessStatus {
+  COMPLETENESS_STATUS_UNSPECIFIED = 0;
+  COMPLETENESS_STATUS_COMPLETE = 1;
+  COMPLETENESS_STATUS_PARTIAL = 2;
+  COMPLETENESS_STATUS_UNSUPPORTED = 3;
+  COMPLETENESS_STATUS_FAILED = 4;
+  COMPLETENESS_STATUS_NOT_REQUESTED = 5;
+}
+
+message AdapterError {
+  string code = 1;
+  string message = 2;
+  bool retryable = 3;
+}

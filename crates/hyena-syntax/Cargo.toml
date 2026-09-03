@@ -1,0 +1,16 @@
+[package]
+name = "hyena-syntax"
+description = "Tree-sitter syntax host for Hyena language packs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+tree-sitter.workspace = true
+tree-sitter-dart.workspace = true

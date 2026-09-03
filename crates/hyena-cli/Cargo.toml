@@ -1,0 +1,21 @@
+[package]
+name = "hyena-cli"
+description = "Command-line interface for the Hyena analysis engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "hyena"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+hyena-protocol = { path = "../hyena-protocol" }
+hyena-syntax = { path = "../hyena-syntax" }
+serde_json.workspace = true
+thiserror.workspace = true

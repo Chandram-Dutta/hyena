@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PATH="$HOME/.cargo/bin:$PATH"
+
+step() {
+  local label="$1"
+  shift
+  local started=$SECONDS
+  printf '==> %s\n' "$label"
+  "$@"
+  printf '    completed in %ss\n' "$((SECONDS - started))"
+}
+
+if ! command -v rustup >/dev/null 2>&1; then
+  step "Installing rustup" \
+    curl --proto '=https' --tlsv1.2 -sSf \
+      https://sh.rustup.rs \
+      -o /tmp/hyena-rustup-init.sh
+  step "Bootstrapping rustup" \
+    sh /tmp/hyena-rustup-init.sh \
+      -y \
+      --no-modify-path \
+      --profile minimal \
+      --default-toolchain none
+  rm -f /tmp/hyena-rustup-init.sh
+fi
+
+step "Installing the pinned Rust toolchain" \
+  rustup toolchain install 1.98.0 \
+    --profile minimal \
+    --component clippy,rustfmt
+
+cd "$repo_root"
+if [[ ! -f Cargo.lock ]]; then
+  step "Generating the initial Cargo lockfile" cargo generate-lockfile
+fi
+step "Fetching locked Cargo dependencies" cargo fetch --locked
+step "Building the workspace" cargo build --workspace --all-targets --locked
+
+printf 'Hyena orb setup complete.\n'
