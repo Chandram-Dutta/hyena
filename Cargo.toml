@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/hyena-adapter-host",
   "crates/hyena-cli",
   "crates/hyena-engine",
   "crates/hyena-protocol",

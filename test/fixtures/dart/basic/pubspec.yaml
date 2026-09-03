@@ -1,0 +1,5 @@
+name: hyena_basic_fixture
+publish_to: none
+
+environment:
+  sdk: ^3.10.0

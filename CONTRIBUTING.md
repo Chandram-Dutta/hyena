@@ -8,6 +8,9 @@ Hyena is in an early contract-validation phase. Please discuss substantial langu
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features --locked
+(cd adapters/dart && dart format --output=none --set-exit-if-changed .)
+(cd adapters/dart && dart analyze --fatal-infos)
+(cd adapters/dart && dart test)
 ```
 
 Changes to protocol fields, semantic meanings, source coordinates, symbol identity, completeness, finding fingerprints, or metric algorithms require an architecture decision record under `docs/adr/`.

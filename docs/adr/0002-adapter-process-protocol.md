@@ -13,7 +13,7 @@ The public adapter boundary is a supervised subprocess. Transport uses a big-end
 
 The core must enforce frame, byte, fact, time, and diagnostic limits; support cancellation; reject malformed messages; and treat stdout as protocol-only. The handshake negotiates major/minor protocol versions and named capabilities.
 
-Package `hyena.adapter.v0` is a control-plane spike, not a compatibility promise. The semantic data plane remains unfrozen until Dart and TypeScript vertical slices validate the fact model.
+Package `hyena.adapter.v0` is a protocol spike, not a compatibility promise. Its minimal semantic fact data plane remains unfrozen until Dart and TypeScript vertical slices validate the fact model.
 
 Protocol fields may be added compatibly, but field numbers are never reused, removed fields are reserved, enum zero values are unspecified, and unknown values are not interpreted as false.
 

@@ -13,17 +13,27 @@ use thiserror::Error;
 pub struct SymbolKey {
     scheme: String,
     scheme_version: u32,
-    value: String,
+    value: Vec<u8>,
+    stability: SymbolStability,
 }
 
 impl SymbolKey {
     pub fn new(
         scheme: impl Into<String>,
         scheme_version: u32,
-        value: impl Into<String>,
+        value: impl AsRef<[u8]>,
+    ) -> Result<Self, ModelError> {
+        Self::new_with_stability(scheme, scheme_version, value, SymbolStability::CrossSnapshot)
+    }
+
+    pub fn new_with_stability(
+        scheme: impl Into<String>,
+        scheme_version: u32,
+        value: impl AsRef<[u8]>,
+        stability: SymbolStability,
     ) -> Result<Self, ModelError> {
         let scheme = scheme.into();
-        let value = value.into();
+        let value = value.as_ref().to_vec();
         if scheme.trim().is_empty() {
             return Err(ModelError::EmptySymbolComponent { component: "scheme" });
         }
@@ -33,7 +43,7 @@ impl SymbolKey {
         if value.is_empty() {
             return Err(ModelError::EmptySymbolComponent { component: "value" });
         }
-        Ok(Self { scheme, scheme_version, value })
+        Ok(Self { scheme, scheme_version, value, stability })
     }
 
     pub fn scheme(&self) -> &str {
@@ -44,9 +54,20 @@ impl SymbolKey {
         self.scheme_version
     }
 
-    pub fn value(&self) -> &str {
+    pub fn value(&self) -> &[u8] {
         &self.value
     }
+
+    pub fn stability(&self) -> SymbolStability {
+        self.stability
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SymbolStability {
+    Snapshot,
+    CrossSnapshot,
 }
 
 /// A canonical zero-based, half-open byte span into a specific source artifact.
@@ -174,6 +195,25 @@ impl DeadCodeCompleteness {
         .filter_map(|(name, status)| (status != Completeness::Complete).then_some(name))
         .collect()
     }
+
+    fn unavailable_dimensions(self) -> Vec<&'static str> {
+        [
+            ("source_discovery", self.source_discovery),
+            ("semantic_resolution", self.semantic_resolution),
+            ("roots", self.roots),
+            ("retention_edges", self.retention_edges),
+            ("dynamic_behavior", self.dynamic_behavior),
+        ]
+        .into_iter()
+        .filter_map(|(name, status)| {
+            matches!(
+                status,
+                Completeness::Unsupported | Completeness::Failed | Completeness::NotRequested
+            )
+            .then_some(name)
+        })
+        .collect()
+    }
 }
 
 /// A validated retention graph. Ordering is independent of input order.
@@ -227,11 +267,32 @@ impl RetentionGraph {
         &self,
         completeness: DeadCodeCompleteness,
     ) -> Result<ReachabilityAnalysis, AnalysisError> {
+        let analysis = self.analyze_dead_code(completeness, DeadCodeMode::ProvenOnly)?;
+        Ok(ReachabilityAnalysis {
+            reachable: analysis.reachable,
+            unused: analysis.unused.into_iter().map(|finding| finding.symbol).collect(),
+        })
+    }
+
+    pub fn analyze_dead_code(
+        &self,
+        completeness: DeadCodeCompleteness,
+        mode: DeadCodeMode,
+    ) -> Result<DeadCodeAnalysis, AnalysisError> {
+        let unavailable_dimensions = completeness.unavailable_dimensions();
+        if !unavailable_dimensions.is_empty() {
+            return Err(AnalysisError::UnavailableForDeadCode { unavailable_dimensions });
+        }
         let incomplete_dimensions = completeness.incomplete_dimensions();
-        if !incomplete_dimensions.is_empty() {
+        if !incomplete_dimensions.is_empty() && mode == DeadCodeMode::ProvenOnly {
             return Err(AnalysisError::IncompleteForProvenUnused { incomplete_dimensions });
         }
 
+        let certainty = if incomplete_dimensions.is_empty() {
+            FindingCertainty::ProvenUnused
+        } else {
+            FindingCertainty::CandidateUnused
+        };
         let mut reachable = self.roots.clone();
         let mut pending = self.roots.iter().cloned().collect::<Vec<_>>();
         while let Some(source) = pending.pop() {
@@ -244,9 +305,47 @@ impl RetentionGraph {
             }
         }
 
-        let unused = self.symbols.keys().filter(|key| !reachable.contains(*key)).cloned().collect();
-        Ok(ReachabilityAnalysis { reachable: reachable.into_iter().collect(), unused })
+        let unused = self
+            .symbols
+            .keys()
+            .filter(|key| !reachable.contains(*key))
+            .cloned()
+            .map(|symbol| UnusedSymbol { symbol, certainty })
+            .collect();
+        Ok(DeadCodeAnalysis {
+            reachable: reachable.into_iter().collect(),
+            unused,
+            incomplete_dimensions,
+        })
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeadCodeMode {
+    ProvenOnly,
+    IncludeCandidates,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FindingCertainty {
+    ProvenUnused,
+    CandidateUnused,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnusedSymbol {
+    pub symbol: SymbolKey,
+    pub certainty: FindingCertainty,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeadCodeAnalysis {
+    pub reachable: Vec<SymbolKey>,
+    pub unused: Vec<UnusedSymbol>,
+    pub incomplete_dimensions: Vec<&'static str>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -284,6 +383,11 @@ pub enum ModelError {
 pub enum AnalysisError {
     #[error("proven-unused analysis requires complete dimensions: {incomplete_dimensions:?}")]
     IncompleteForProvenUnused { incomplete_dimensions: Vec<&'static str> },
+    #[error(
+        "dead-code analysis is unavailable because required dimensions failed, are unsupported, \
+         or were not requested: {unavailable_dimensions:?}"
+    )]
+    UnavailableForDeadCode { unavailable_dimensions: Vec<&'static str> },
 }
 
 #[cfg(test)]
@@ -366,6 +470,21 @@ mod tests {
             Err(AnalysisError::IncompleteForProvenUnused {
                 incomplete_dimensions: vec!["semantic_resolution"]
             })
+        );
+    }
+
+    #[test]
+    fn candidate_mode_requires_at_least_partial_information() {
+        let graph = RetentionGraph::new(vec![symbol("dead")], vec![], vec![])
+            .expect("fixture graph must be valid");
+        let completeness = DeadCodeCompleteness {
+            roots: Completeness::Unsupported,
+            ..DeadCodeCompleteness::complete()
+        };
+
+        assert_eq!(
+            graph.analyze_dead_code(completeness, DeadCodeMode::IncludeCandidates),
+            Err(AnalysisError::UnavailableForDeadCode { unavailable_dimensions: vec!["roots"] })
         );
     }
 

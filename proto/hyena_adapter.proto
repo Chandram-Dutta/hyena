@@ -2,9 +2,9 @@ syntax = "proto3";
 
 package hyena.adapter.v0;
 
-// Experimental Phase 0 control-plane protocol. Package v0 carries no
-// compatibility promise. The semantic fact data plane will be added only
-// after Dart and TypeScript vertical slices validate the domain contract.
+// Experimental Phase 0 protocol. Package v0 carries no compatibility promise;
+// its fact data plane will evolve while Dart and TypeScript validate the
+// domain contract.
 message Envelope {
   uint64 request_id = 1;
 
@@ -15,6 +15,7 @@ message Envelope {
     Cancel cancel = 13;
     Complete complete = 14;
     AdapterError error = 15;
+    FactBatch fact_batch = 16;
   }
 
   reserved 2 to 9;
@@ -56,9 +57,153 @@ message AnalyzeRequest {
   // Physical workspace root granted to this trusted v0 subprocess. It is not
   // a portable artifact identity and must not appear in findings.
   string workspace_root = 1;
+  // Portable, workspace-relative path using '/' separators.
   string target = 2;
   bytes configuration_digest = 3;
   string variant_id = 4;
+}
+
+message FactBatch {
+  // Monotonically increasing per request, starting at zero.
+  uint64 sequence = 1;
+  repeated Artifact artifacts = 2;
+  repeated Symbol symbols = 3;
+  repeated RetentionEdge retention_edges = 4;
+  repeated Root roots = 5;
+  repeated Diagnostic diagnostics = 6;
+}
+
+message Artifact {
+  // Workspace-relative, '/'-separated, with no empty, '.' or '..' segments.
+  string id = 1;
+  string language = 2;
+  uint64 byte_length = 3;
+  ContentDigest content_digest = 4;
+  SourceEncoding source_encoding = 5;
+  ArtifactOrigin origin = 6;
+}
+
+message ContentDigest {
+  // Lowercase registered algorithm name. V0 Dart adapters use "sha256".
+  string algorithm = 1;
+  bytes value = 2;
+}
+
+enum SourceEncoding {
+  SOURCE_ENCODING_UNSPECIFIED = 0;
+  SOURCE_ENCODING_UTF8 = 1;
+}
+
+enum ArtifactOrigin {
+  ARTIFACT_ORIGIN_UNSPECIFIED = 0;
+  ARTIFACT_ORIGIN_SOURCE = 1;
+  ARTIFACT_ORIGIN_GENERATED = 2;
+}
+
+message SourceSpan {
+  string artifact_id = 1;
+  // Zero-based, half-open UTF-8 byte offsets: [start_byte, end_byte).
+  uint64 start_byte = 2;
+  uint64 end_byte = 3;
+}
+
+message SymbolKey {
+  string scheme = 1;
+  uint32 scheme_version = 2;
+  bytes value = 3;
+  SymbolStability stability = 4;
+}
+
+enum SymbolStability {
+  SYMBOL_STABILITY_UNSPECIFIED = 0;
+  SYMBOL_STABILITY_SNAPSHOT = 1;
+  SYMBOL_STABILITY_CROSS_SNAPSHOT = 2;
+}
+
+message Symbol {
+  SymbolKey key = 1;
+  string display_name = 2;
+  string qualified_name = 3;
+  SymbolKind kind = 4;
+  SourceSpan declaration = 5;
+  Visibility visibility = 6;
+  ExportStatus export_status = 7;
+}
+
+enum SymbolKind {
+  SYMBOL_KIND_UNSPECIFIED = 0;
+  SYMBOL_KIND_CLASS = 1;
+  SYMBOL_KIND_MIXIN = 2;
+  SYMBOL_KIND_EXTENSION = 3;
+  SYMBOL_KIND_EXTENSION_TYPE = 4;
+  SYMBOL_KIND_ENUM = 5;
+  SYMBOL_KIND_ENUM_VALUE = 6;
+  SYMBOL_KIND_FUNCTION = 7;
+  SYMBOL_KIND_CONSTRUCTOR = 8;
+  SYMBOL_KIND_METHOD = 9;
+  SYMBOL_KIND_GETTER = 10;
+  SYMBOL_KIND_SETTER = 11;
+  SYMBOL_KIND_TOP_LEVEL_VARIABLE = 12;
+  SYMBOL_KIND_FIELD = 13;
+  SYMBOL_KIND_TYPE_ALIAS = 14;
+}
+
+enum Visibility {
+  VISIBILITY_UNSPECIFIED = 0;
+  VISIBILITY_PUBLIC = 1;
+  VISIBILITY_PRIVATE = 2;
+}
+
+enum ExportStatus {
+  EXPORT_STATUS_UNSPECIFIED = 0;
+  EXPORT_STATUS_EXPORTED = 1;
+  EXPORT_STATUS_NOT_EXPORTED = 2;
+}
+
+message RetentionEdge {
+  SymbolKey source = 1;
+  SymbolKey target = 2;
+  RetentionEdgeKind kind = 3;
+  SourceSpan evidence = 4;
+}
+
+enum RetentionEdgeKind {
+  RETENTION_EDGE_KIND_UNSPECIFIED = 0;
+  RETENTION_EDGE_KIND_REFERENCE = 1;
+  RETENTION_EDGE_KIND_CALL = 2;
+  RETENTION_EDGE_KIND_TYPE_USE = 3;
+  RETENTION_EDGE_KIND_DECLARATION_OWNER = 4;
+}
+
+message Root {
+  SymbolKey symbol = 1;
+  RootKind kind = 2;
+  SourceSpan evidence = 3;
+  string reason_code = 4;
+}
+
+enum RootKind {
+  ROOT_KIND_UNSPECIFIED = 0;
+  ROOT_KIND_ENTRY_POINT = 1;
+  ROOT_KIND_TOP_LEVEL_EFFECT = 2;
+  ROOT_KIND_PUBLIC_API = 3;
+  ROOT_KIND_OVERRIDE = 4;
+  ROOT_KIND_DYNAMIC_DISPATCH = 5;
+  ROOT_KIND_USER_KEEP = 6;
+}
+
+message Diagnostic {
+  DiagnosticSeverity severity = 1;
+  string code = 2;
+  string message = 3;
+  SourceSpan span = 4;
+}
+
+enum DiagnosticSeverity {
+  DIAGNOSTIC_SEVERITY_UNSPECIFIED = 0;
+  DIAGNOSTIC_SEVERITY_INFO = 1;
+  DIAGNOSTIC_SEVERITY_WARNING = 2;
+  DIAGNOSTIC_SEVERITY_ERROR = 3;
 }
 
 message Cancel {
@@ -66,6 +211,8 @@ message Cancel {
 }
 
 message Complete {
+  // Terminal response for a successful or partial request. AdapterError is
+  // independently terminal; an adapter must not send both for one request.
   CompletionStatus status = 1;
   repeated Completeness dimensions = 2;
 }
@@ -94,6 +241,7 @@ enum CompletenessStatus {
 }
 
 message AdapterError {
+  // Terminal response for the request_id carried by the enclosing Envelope.
   string code = 1;
   string message = 2;
   bool retryable = 3;

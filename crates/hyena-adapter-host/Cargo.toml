@@ -1,0 +1,15 @@
+[package]
+name = "hyena-adapter-host"
+description = "Supervised subprocess host and fact validation for Hyena adapters"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+hyena-engine = { path = "../hyena-engine" }
+hyena-protocol = { path = "../hyena-protocol" }
+thiserror.workspace = true

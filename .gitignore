@@ -1,5 +1,6 @@
 /target/
 /.hyena-cache/
 /.amp/portals/*
+**/.dart_tool/
 *.profraw
 .DS_Store

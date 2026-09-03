@@ -121,6 +121,7 @@ Dead-code outcomes are:
 3. **Unknown** — unresolved behavior prevents a useful claim.
 
 Only proven-unused findings should fail CI by default. Candidate mode must be explicit and must not claim deletion safety.
+Candidate mode requires every relevant dimension to be at least partial; a failed, unsupported, or unrequested required dimension yields unknown rather than findings.
 
 ### Complexity
 
@@ -132,7 +133,7 @@ Use supervised subprocesses, not native Rust dynamic libraries. Rust has no stab
 
 The Phase 0 transport is a big-endian `u32` frame length followed by a Protobuf envelope on stdin/stdout. Stdout is protocol-only; stderr is bounded diagnostics. The core enforces frame, byte, fact, time, and process limits.
 
-The initial handshake negotiates protocol version and named capabilities. V0 intentionally defines only the control plane. The semantic fact data plane will be encoded only after Dart and TypeScript vertical slices validate the core model.
+The initial handshake negotiates protocol version and named capabilities. V0 starts with a minimal fact data plane for artifacts, symbols, retention edges, roots, diagnostics, and completeness. Those messages remain experimental and will evolve alongside the Dart and TypeScript vertical slices before any compatibility promise.
 
 Protocol evolution rules:
 

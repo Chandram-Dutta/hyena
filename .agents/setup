@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+readonly dart_version="3.10.3"
+readonly dart_sha256="db95cd3bbdb604ac1d2b8fc7a1524c909a67dfd44bff1fb4a075223b7d829e0f"
+readonly dart_install="$HOME/.local/share/dart-sdk-$dart_version"
+readonly local_bin="$HOME/.local/bin"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export PATH="$HOME/.cargo/bin:$PATH"
+export PATH="$local_bin:$HOME/.cargo/bin:$PATH"
 
 step() {
   local label="$1"
@@ -12,6 +17,15 @@ step() {
   "$@"
   printf '    completed in %ss\n' "$((SECONDS - started))"
 }
+
+missing_packages=()
+command -v curl >/dev/null 2>&1 || missing_packages+=(curl)
+command -v unzip >/dev/null 2>&1 || missing_packages+=(unzip)
+if ((${#missing_packages[@]})); then
+  step "Refreshing apt package metadata" sudo apt-get update
+  step "Installing system prerequisites" \
+    sudo apt-get install -y --no-install-recommends "${missing_packages[@]}"
+fi
 
 if ! command -v rustup >/dev/null 2>&1; then
   step "Installing rustup" \
@@ -32,11 +46,51 @@ step "Installing the pinned Rust toolchain" \
     --profile minimal \
     --component clippy,rustfmt
 
+if [[ ! -x "$dart_install/bin/dart" ]]; then
+  archive_url="https://storage.googleapis.com/dart-archive/channels/stable/release/$dart_version/sdk/dartsdk-linux-x64-release.zip"
+  download_dir="$(mktemp -d)"
+  trap 'rm -rf "$download_dir"' EXIT
+
+  step "Downloading Dart SDK $dart_version" \
+    curl --fail --location --retry 3 \
+      --output "$download_dir/dart-sdk.zip" \
+      "$archive_url"
+  printf '%s  %s\n' "$dart_sha256" "$download_dir/dart-sdk.zip" \
+    | sha256sum --check --status
+  step "Extracting Dart SDK $dart_version" \
+    unzip -q "$download_dir/dart-sdk.zip" -d "$download_dir"
+  mkdir -p "$(dirname "$dart_install")"
+  mv "$download_dir/dart-sdk" "$dart_install"
+fi
+mkdir -p "$local_bin"
+ln -sfn "$dart_install/bin/dart" "$local_bin/dart"
+
 cd "$repo_root"
 if [[ ! -f Cargo.lock ]]; then
   step "Generating the initial Cargo lockfile" cargo generate-lockfile
 fi
 step "Fetching locked Cargo dependencies" cargo fetch --locked
 step "Building the workspace" cargo build --workspace --all-targets --locked
+step "Fetching locked Dart adapter dependencies" \
+  dart pub get --directory adapters/dart --enforce-lockfile
+
+adapter_binary="target/hyena-dart-adapter"
+adapter_source_changed=""
+if [[ -x "$adapter_binary" ]]; then
+  adapter_source_changed="$(
+    find adapters/dart/bin adapters/dart/lib \
+      -type f -newer "$adapter_binary" -print -quit
+  )"
+fi
+if [[ ! -x "$adapter_binary" ]] \
+  || [[ -n "$adapter_source_changed" ]] \
+  || [[ proto/hyena_adapter.proto -nt "$adapter_binary" ]] \
+  || [[ adapters/dart/pubspec.lock -nt "$adapter_binary" ]]; then
+  step "Compiling the Dart adapter" \
+    dart compile exe adapters/dart/bin/hyena_dart_adapter.dart \
+      -o "$adapter_binary"
+else
+  printf '==> Dart adapter is up to date\n'
+fi
 
 printf 'Hyena orb setup complete.\n'
